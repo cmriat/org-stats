@@ -100,6 +100,8 @@ func gatherReviewStats(
 	allStats *Stats,
 	since time.Time,
 ) error {
+	// We only process users that are already in allStats.data,
+	// which means they are organization members (filtered in gatherLineStats)
 	ts := since.Format("2006-01-02")
 	// review:approved, review:changes_requested
 	reviewed, err := search(ctx, client, fmt.Sprintf("user:%s is:pr reviewed-by:%s created:>%s", org, user, ts))
@@ -139,6 +141,47 @@ func search(
 	return *result.Total, nil
 }
 
+// getOrgMembers returns a map of organization members for quick lookup
+func getOrgMembers(ctx context.Context, client *github.Client, org string) (map[string]bool, error) {
+	// Create a map to store organization members
+	members := make(map[string]bool)
+
+	// Set up options for listing organization members
+	opt := &github.ListMembersOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+
+	// Fetch all pages of organization members
+	for {
+		users, resp, err := client.Organizations.ListMembers(ctx, org, opt)
+		if rateErr, ok := err.(*github.RateLimitError); ok {
+			handleRateLimit(rateErr)
+			continue
+		}
+		if isSecondRateErr, secondRateErr := githuberrors.IsSecondaryRateLimitError(resp); isSecondRateErr {
+			handleSecondaryRateLimit(secondRateErr)
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to list organization members: %w", err)
+		}
+
+		// Add each member to the map
+		for _, user := range users {
+			members[user.GetLogin()] = true
+		}
+
+		// Break if we've processed the last page
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+
+	log.Printf("found %d organization members", len(members))
+	return members, nil
+}
+
 func gatherLineStats(
 	ctx context.Context,
 	client *github.Client,
@@ -147,6 +190,12 @@ func gatherLineStats(
 	excludeForks bool,
 	allStats *Stats,
 ) error {
+	// Get organization members
+	orgMembers, err := getOrgMembers(ctx, client, org)
+	if err != nil {
+		return err
+	}
+
 	allRepos, err := repos(ctx, client, org)
 	if err != nil {
 		return err
@@ -166,15 +215,25 @@ func gatherLineStats(
 			return serr
 		}
 		for _, cs := range stats {
+			if cs.Author == nil || cs.Author.GetLogin() == "" {
+				continue
+			}
+
+			// Skip if user is not an organization member
+			if !orgMembers[cs.Author.GetLogin()] {
+				log.Println("ignoring non-organization member:", cs.Author.GetLogin())
+				continue
+			}
+
 			if isBlacklisted(userBlacklist, cs.Author.GetLogin()) {
 				log.Println("ignoring blacklisted author:", cs.Author.GetLogin())
 				continue
 			}
-			log.Println("recording stats for author", cs.Author.GetLogin(), "on repo", repo.GetName())
+			log.Println("recording stats for organization member", cs.Author.GetLogin(), "on repo", repo.GetName())
 			allStats.add(cs)
 		}
 	}
-	return err
+	return nil
 }
 
 func isBlacklisted(blacklist []string, s string) bool {
