@@ -6,3 +6,7 @@ snap.login
 completions/
 *.log
 manpages
+
+# pixi environments
+.pixi
+*.egg-info
