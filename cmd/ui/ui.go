@@ -27,6 +27,7 @@ func NewInitialModel(
 	includeReviewStats bool,
 	excludeForks bool,
 	csv io.Writer,
+	verbose bool,
 ) InitialModel {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
@@ -44,6 +45,7 @@ func NewInitialModel(
 		spinner:            s,
 		csv:                csv,
 		loading:            true,
+		verbose:            verbose,
 	}
 }
 
@@ -63,6 +65,7 @@ type InitialModel struct {
 	excludeForks       bool
 	top                int
 	csv                io.Writer
+	verbose            bool
 }
 
 func (m InitialModel) Init() tea.Cmd {
@@ -75,6 +78,7 @@ func (m InitialModel) Init() tea.Cmd {
 			m.since,
 			m.includeReviewStats,
 			m.excludeForks,
+			m.verbose,
 		),
 		m.spinner.Tick,
 	)
@@ -129,6 +133,7 @@ func getStats(
 	since time.Time,
 	includeReviews bool,
 	excludeForks bool,
+	verbose bool,
 ) tea.Cmd {
 	return func() tea.Msg {
 		stats, err := orgstats.Gather(
@@ -140,6 +145,7 @@ func getStats(
 			since,
 			includeReviews,
 			excludeForks,
+			verbose,
 		)
 		if err != nil {
 			return errMsg{err}

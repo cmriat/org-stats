@@ -33,7 +33,7 @@ func TestFilterNonOrgMembers(t *testing.T) {
 	client.UploadURL = url
 
 	// Get organization members
-	members, err := getOrgMembers(context.Background(), client, "test-org")
+	members, err := getOrgMembers(context.Background(), client, "test-org", true)
 
 	// Verify the results
 	assert.NoError(t, err)

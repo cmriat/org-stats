@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/caarlos0/org-stats/github_errors"
+	githuberrors "github.com/caarlos0/org-stats/github_errors"
 
 	"github.com/google/go-github/v39/github"
 )
@@ -52,7 +52,17 @@ func Gather(
 	since time.Time,
 	includeReviewStats bool,
 	excludeForks bool,
+	verbose bool,
 ) (Stats, error) {
+	if verbose {
+		log.Println("Starting to gather stats for organization:", org)
+		log.Println("Options: includeReviewStats=", includeReviewStats, "excludeForks=", excludeForks)
+		if !since.IsZero() {
+			log.Println("Gathering stats since:", since.Format("2006-01-02 15:04:05"))
+		} else {
+			log.Println("Gathering all stats (no time limit)")
+		}
+	}
 
 	allStats := NewStats(since)
 	if err := gatherLineStats(
@@ -63,6 +73,7 @@ func Gather(
 		repoBlacklist,
 		excludeForks,
 		&allStats,
+		verbose,
 	); err != nil {
 		return Stats{}, err
 	}
@@ -71,6 +82,10 @@ func Gather(
 
 	if !includeReviewStats {
 		return allStats, nil
+	}
+
+	if verbose {
+		log.Println("Starting to gather review stats for all organization members")
 	}
 
 	for user := range allStats.data {
@@ -84,6 +99,7 @@ func Gather(
 			repoBlacklist,
 			&allStats,
 			since,
+			verbose,
 		); err != nil {
 			return Stats{}, err
 		}
@@ -99,16 +115,32 @@ func gatherReviewStats(
 	userBlacklist, repoBlacklist []string,
 	allStats *Stats,
 	since time.Time,
+	verbose bool,
 ) error {
 	// We only process users that are already in allStats.data,
 	// which means they are organization members (filtered in gatherLineStats)
 	ts := since.Format("2006-01-02")
+
+	if verbose {
+		log.Printf("Gathering review stats for user %s in organization %s since %s", user, org, ts)
+	}
+
 	// review:approved, review:changes_requested
-	reviewed, err := search(ctx, client, fmt.Sprintf("user:%s is:pr reviewed-by:%s created:>%s", org, user, ts))
+	query := fmt.Sprintf("user:%s is:pr reviewed-by:%s created:>%s", org, user, ts)
+	if verbose {
+		log.Printf("Executing search query: %s", query)
+	}
+
+	reviewed, err := search(ctx, client, query)
 	if err != nil {
 		log.Println("failed to gather review stats for user: ", user, "error: ", err)
 		return err
 	}
+
+	if verbose {
+		log.Printf("Found %d reviews for user %s", reviewed, user)
+	}
+
 	allStats.addReviewStats(user, reviewed)
 	return nil
 }
@@ -142,7 +174,11 @@ func search(
 }
 
 // getOrgMembers returns a map of organization members for quick lookup
-func getOrgMembers(ctx context.Context, client *github.Client, org string) (map[string]bool, error) {
+func getOrgMembers(ctx context.Context, client *github.Client, org string, verbose bool) (map[string]bool, error) {
+	if verbose {
+		log.Printf("Getting organization members for %s", org)
+	}
+
 	// Create a map to store organization members
 	members := make(map[string]bool)
 
@@ -152,7 +188,13 @@ func getOrgMembers(ctx context.Context, client *github.Client, org string) (map[
 	}
 
 	// Fetch all pages of organization members
+	pageCount := 0
 	for {
+		pageCount++
+		if verbose {
+			log.Printf("Fetching page %d of organization members", pageCount)
+		}
+
 		users, resp, err := client.Organizations.ListMembers(ctx, org, opt)
 		if rateErr, ok := err.(*github.RateLimitError); ok {
 			handleRateLimit(rateErr)
@@ -168,6 +210,9 @@ func getOrgMembers(ctx context.Context, client *github.Client, org string) (map[
 
 		// Add each member to the map
 		for _, user := range users {
+			if verbose {
+				log.Printf("Found organization member: %s", user.GetLogin())
+			}
 			members[user.GetLogin()] = true
 		}
 
@@ -189,11 +234,20 @@ func gatherLineStats(
 	userBlacklist, repoBlacklist []string,
 	excludeForks bool,
 	allStats *Stats,
+	verbose bool,
 ) error {
+	if verbose {
+		log.Printf("Starting to gather line stats for organization %s", org)
+	}
+
 	// Get organization members
-	orgMembers, err := getOrgMembers(ctx, client, org)
+	orgMembers, err := getOrgMembers(ctx, client, org, verbose)
 	if err != nil {
 		return err
+	}
+
+	if verbose {
+		log.Printf("Fetching repositories for organization %s", org)
 	}
 
 	allRepos, err := repos(ctx, client, org)
@@ -202,6 +256,10 @@ func gatherLineStats(
 	}
 
 	for _, repo := range allRepos {
+		if verbose {
+			log.Printf("Processing repository: %s", repo.GetName())
+		}
+
 		if excludeForks && *repo.Fork {
 			log.Println("ignoring forked repo:", repo.GetName())
 			continue
@@ -210,19 +268,37 @@ func gatherLineStats(
 			log.Println("ignoring blacklisted repo:", repo.GetName())
 			continue
 		}
+
+		if verbose {
+			log.Printf("Fetching contributor stats for repository %s", repo.GetName())
+		}
+
 		stats, serr := getStats(ctx, client, org, *repo.Name)
 		if serr != nil {
 			return serr
 		}
+
+		if verbose {
+			log.Printf("Found %d contributors for repository %s", len(stats), repo.GetName())
+		}
+
 		for _, cs := range stats {
 			if cs.Author == nil || cs.Author.GetLogin() == "" {
+				if verbose {
+					log.Println("Skipping contributor with no login")
+				}
 				continue
 			}
 
 			// Skip if user is not an organization member
 			if !orgMembers[cs.Author.GetLogin()] {
+				if verbose {
+					log.Printf("Checking if %s is an organization member: NO", cs.Author.GetLogin())
+				}
 				log.Println("ignoring non-organization member:", cs.Author.GetLogin())
 				continue
+			} else if verbose {
+				log.Printf("Checking if %s is an organization member: YES", cs.Author.GetLogin())
 			}
 
 			if isBlacklisted(userBlacklist, cs.Author.GetLogin()) {

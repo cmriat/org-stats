@@ -24,6 +24,7 @@ var (
 	top            int
 	includeReviews bool
 	excludeForks   bool
+	verbose        bool // 是否启用详细日志
 )
 
 func Execute() {
@@ -47,6 +48,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&includeReviews, "include-reviews", false, "include pull request reviews in the stats")
 	rootCmd.Flags().BoolVar(&excludeForks, "exclude-forks", false, "exclude forked repositories from the stats")
 	rootCmd.Flags().StringVar(&csvPath, "csv-path", "", "path to write a csv file with all data collected")
+	rootCmd.Flags().BoolVar(&verbose, "verbose", false, "enable verbose logging for debugging")
 
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
 
@@ -125,6 +127,7 @@ Important notes:
 			includeReviews,
 			excludeForks,
 			csv,
+			verbose,
 		))
 		_, err = p.Run()
 		return err
