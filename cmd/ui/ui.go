@@ -22,6 +22,7 @@ func NewInitialModel(
 	client *github.Client,
 	org string,
 	userBlacklist, repoBlacklist []string,
+	userWhitelist, repoWhitelist []string,
 	since time.Time,
 	top int,
 	includeReviewStats bool,
@@ -38,6 +39,8 @@ func NewInitialModel(
 		org:                org,
 		userBlacklist:      userBlacklist,
 		repoBlacklist:      repoBlacklist,
+		userWhitelist:      userWhitelist,
+		repoWhitelist:      repoWhitelist,
 		since:              since,
 		includeReviewStats: includeReviewStats,
 		excludeForks:       excludeForks,
@@ -60,6 +63,8 @@ type InitialModel struct {
 	org                string
 	userBlacklist      []string
 	repoBlacklist      []string
+	userWhitelist      []string
+	repoWhitelist      []string
 	since              time.Time
 	includeReviewStats bool
 	excludeForks       bool
@@ -75,6 +80,8 @@ func (m InitialModel) Init() tea.Cmd {
 			m.org,
 			m.userBlacklist,
 			m.repoBlacklist,
+			m.userWhitelist,
+			m.repoWhitelist,
 			m.since,
 			m.includeReviewStats,
 			m.excludeForks,
@@ -130,6 +137,7 @@ func getStats(
 	client *github.Client,
 	org string,
 	userBlacklist, repoBlacklist []string,
+	userWhitelist, repoWhitelist []string,
 	since time.Time,
 	includeReviews bool,
 	excludeForks bool,
@@ -142,6 +150,8 @@ func getStats(
 			org,
 			userBlacklist,
 			repoBlacklist,
+			userWhitelist,
+			repoWhitelist,
 			since,
 			includeReviews,
 			excludeForks,

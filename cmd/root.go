@@ -21,6 +21,7 @@ var (
 	since          string
 	csvPath        string
 	blacklist      []string
+	whitelist      []string // 白名单，允许包括指定的用户或项目，即使不属于组织
 	top            int
 	includeReviews bool
 	excludeForks   bool
@@ -42,6 +43,7 @@ func init() {
 	_ = rootCmd.MarkFlagRequired("org")
 
 	rootCmd.Flags().StringSliceVarP(&blacklist, "blacklist", "b", []string{}, "blacklist repos and/or users")
+	rootCmd.Flags().StringSliceVarP(&whitelist, "whitelist", "w", []string{}, "whitelist repos and/or users (even if not in organization)")
 	rootCmd.Flags().IntVar(&top, "top", 3, "how many users to show")
 	rootCmd.Flags().StringVar(&githubURL, "github-url", "", "custom github base url (if using github enterprise)")
 	rootCmd.Flags().StringVar(&since, "since", "0s", "time to look back to gather info (0s means everything)")
@@ -71,6 +73,7 @@ Important notes:
 * The ` + "`--since`" + ` filter does not work "that well" because GitHub summarizes thedata by week, so the data is not as granular as it should be.
 * The ` + "`--include-reviews`" + ` only grabs reviews from users that had contributions on the previous step.
 * In the ` + "`--blacklist`" + ` option, 'foo' blacklists both the 'foo' user and 'foo' repo, while 'user:foo' blacklists only the user and 'repo:foo' only the repository.
+* The ` + "`--whitelist`" + ` option works similarly to blacklist but with the opposite effect - it includes users or repos even if they are not part of the organization. Use 'user:foo' to whitelist only the user and 'repo:foo' to whitelist only the repository.
 * The ` + "`--since`" + ` option accepts all the regular time. Accepts any duration Go standard library accepts, plus a few more: 1y (365d), 1mo (30d), 1w (7d) and 1d (24h).
 * The ` + "`--token`" + ` token permissions need to include 'repo - Full control of private repositories'. Required only if you need to fetch data from private repositories in your organization.
 }`,
@@ -92,6 +95,7 @@ Important notes:
 		}
 
 		userBlacklist, repoBlacklist := buildBlacklists(blacklist)
+		userWhitelist, repoWhitelist := buildWhitelists(whitelist)
 
 		csv := io.Discard
 		if csvPath != "" {
@@ -122,6 +126,8 @@ Important notes:
 			organization,
 			userBlacklist,
 			repoBlacklist,
+			userWhitelist,
+			repoWhitelist,
 			sinceT,
 			top,
 			includeReviews,

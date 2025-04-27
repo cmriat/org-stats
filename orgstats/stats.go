@@ -49,6 +49,7 @@ func Gather(
 	client *github.Client,
 	org string,
 	userBlacklist, repoBlacklist []string,
+	userWhitelist, repoWhitelist []string,
 	since time.Time,
 	includeReviewStats bool,
 	excludeForks bool,
@@ -57,6 +58,9 @@ func Gather(
 	if verbose {
 		log.Println("Starting to gather stats for organization:", org)
 		log.Println("Options: includeReviewStats=", includeReviewStats, "excludeForks=", excludeForks)
+		if len(userWhitelist) > 0 || len(repoWhitelist) > 0 {
+			log.Println("Using whitelist - will include specified users/repos even if not in organization")
+		}
 		if !since.IsZero() {
 			log.Println("Gathering stats since:", since.Format("2006-01-02 15:04:05"))
 		} else {
@@ -71,6 +75,8 @@ func Gather(
 		org,
 		userBlacklist,
 		repoBlacklist,
+		userWhitelist,
+		repoWhitelist,
 		excludeForks,
 		&allStats,
 		verbose,
@@ -85,7 +91,7 @@ func Gather(
 	}
 
 	if verbose {
-		log.Println("Starting to gather review stats for all organization members")
+		log.Println("Starting to gather review stats for all contributors")
 	}
 
 	for user := range allStats.data {
@@ -232,6 +238,7 @@ func gatherLineStats(
 	client *github.Client,
 	org string,
 	userBlacklist, repoBlacklist []string,
+	userWhitelist, repoWhitelist []string,
 	excludeForks bool,
 	allStats *Stats,
 	verbose bool,
@@ -290,22 +297,38 @@ func gatherLineStats(
 				continue
 			}
 
-			// Skip if user is not an organization member
-			if !orgMembers[cs.Author.GetLogin()] {
+			// 检查用户是否在白名单中
+			isWhitelisted := isWhitelisted(userWhitelist, cs.Author.GetLogin())
+
+			// 如果用户不是组织成员且不在白名单中，则跳过
+			if !orgMembers[cs.Author.GetLogin()] && !isWhitelisted {
 				if verbose {
 					log.Printf("Checking if %s is an organization member: NO", cs.Author.GetLogin())
+					if !isWhitelisted {
+						log.Printf("%s is not in whitelist, skipping", cs.Author.GetLogin())
+					}
 				}
 				log.Println("ignoring non-organization member:", cs.Author.GetLogin())
 				continue
 			} else if verbose {
-				log.Printf("Checking if %s is an organization member: YES", cs.Author.GetLogin())
+				if orgMembers[cs.Author.GetLogin()] {
+					log.Printf("Checking if %s is an organization member: YES", cs.Author.GetLogin())
+				} else if isWhitelisted {
+					log.Printf("%s is in whitelist, including despite not being an organization member", cs.Author.GetLogin())
+				}
 			}
 
 			if isBlacklisted(userBlacklist, cs.Author.GetLogin()) {
 				log.Println("ignoring blacklisted author:", cs.Author.GetLogin())
 				continue
 			}
-			log.Println("recording stats for organization member", cs.Author.GetLogin(), "on repo", repo.GetName())
+
+			// 记录用户统计信息
+			if orgMembers[cs.Author.GetLogin()] {
+				log.Println("recording stats for organization member", cs.Author.GetLogin(), "on repo", repo.GetName())
+			} else {
+				log.Println("recording stats for whitelisted user", cs.Author.GetLogin(), "on repo", repo.GetName())
+			}
 			allStats.add(cs)
 		}
 	}
@@ -315,6 +338,20 @@ func gatherLineStats(
 func isBlacklisted(blacklist []string, s string) bool {
 	for _, b := range blacklist {
 		if strings.EqualFold(s, b) {
+			return true
+		}
+	}
+	return false
+}
+
+// isWhitelisted 检查给定的字符串是否在白名单中
+func isWhitelisted(whitelist []string, s string) bool {
+	if len(whitelist) == 0 {
+		return false
+	}
+
+	for _, w := range whitelist {
+		if strings.EqualFold(s, w) {
 			return true
 		}
 	}
